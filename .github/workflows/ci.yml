@@ -1,0 +1,84 @@
+# .github/workflows/ci.yml — Phase A : fondations CI OrigaMe
+# Rôle : sur chaque PR (et push sur main/staging), construire et tester app + server en parallèle.
+# Aucun déploiement ici : DigitalOcean continue de déployer comme aujourd'hui.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, staging, prod]
+  push:
+    branches: [main, staging]
+  workflow_dispatch: {}          # bouton "Run workflow" pour relancer à la main
+
+# Moindre privilège : le token GitHub ne peut que lire le code
+permissions:
+  contents: read
+
+# Une nouvelle poussée sur la même PR annule le run précédent (économie de minutes)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------- BACKEND
+  server:
+    name: Back (Spring Boot / Java 8)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven                # cache ~/.m2 → builds bien plus rapides
+
+      - name: Build + tests
+        run: mvn -B -ntp verify
+
+      - name: Rapports de tests (si échec)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: server/target/surefire-reports/
+          retention-days: 7
+
+  # --------------------------------------------------------------- FRONTEND
+  app:
+    name: Front (Vue / Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Installation reproductible
+        run: npm ci                   # échoue si package-lock.json n'est pas à jour
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint (lecture seule)
+        # "lint" fait --fix (modifie les fichiers) ; "lint:ci" vérifie seulement
+        run: npm run lint:ci
+
+      - name: Tests unitaires
+        run: npm run test:unit -- --run   # --run : Vitest sans mode watch
+
+      # Sur OrigaMe : build SANS prérendu pour les PR (pas besoin du backend)
+      - name: Build
+        run: npm run build

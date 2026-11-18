@@ -1,0 +1,15 @@
+# Back
+server/target/
+
+# Front
+app/node_modules/
+app/dist/
+app/coverage/
+
+# Secrets et IDE
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.iml

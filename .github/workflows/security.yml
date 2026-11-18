@@ -1,0 +1,80 @@
+# .github/workflows/security.yml — Phase B : contrôles sécurité sur le code et les dépendances
+# Politique retenue : on bloque les secrets ET les vulnérabilités HIGH + CRITICAL
+# qui ont un correctif disponible. L'existant est inventorié dans .trivyignore (avec date de fin).
+
+name: Security
+
+on:
+  pull_request:
+    branches: [main, staging, prod]
+  push:
+    branches: [main, staging]
+  schedule:
+    - cron: "17 5 * * 1"         # chaque lundi : détecte les NOUVELLES CVE sur du code inchangé
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------ SECRETS DANS LE GIT
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # tout l'historique : un secret supprimé reste dans les anciens commits
+
+      - name: Scan gitleaks
+        run: |
+          # Baseline = secrets historiques déjà connus (à révoquer !) pour ne bloquer que les nouveaux
+          BASELINE=""
+          if [ -f .gitleaks-baseline.json ]; then
+            BASELINE="--baseline-path=/repo/.gitleaks-baseline.json"
+          fi
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 \
+            detect --source=/repo --redact --verbose $BASELINE
+          # --redact : les valeurs trouvées ne s'affichent jamais dans les logs
+
+  # -------------------------------------------- DÉPENDANCES VULNÉRABLES (SCA)
+  dependencies:
+    name: Dépendances (Trivy fs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rapport complet (non bloquant) — la "dette sécu connue"
+        uses: aquasecurity/trivy-action@0.28.0   # à épingler par SHA en Phase C/E
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: LOW,MEDIUM,HIGH,CRITICAL
+          format: table
+          output: trivy-report.txt
+          exit-code: "0"
+
+      - name: Publier le rapport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-deps-report
+          path: trivy-report.txt
+          retention-days: 30
+
+      - name: Gate — HIGH/CRITICAL corrigeables (bloquant)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true       # ne bloque pas sur ce qui n'a pas encore de correctif
+          trivyignores: .trivyignore # exceptions datées (voir modèle)
+          format: table
+          exit-code: "1"

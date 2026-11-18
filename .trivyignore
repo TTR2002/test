@@ -1,0 +1,11 @@
+# .trivyignore — exceptions de sécurité acceptées (dette connue)
+# Règle : UNE ligne = UNE CVE, avec date de fin, raison et responsable.
+# Trivy ignore la CVE jusqu'à la date indiquée (exp:), puis elle redevient bloquante.
+#
+# Format :
+# CVE-AAAA-NNNNN exp:AAAA-MM-JJ
+# # raison : <pourquoi on ne corrige pas maintenant> | resp : <qui> | plan : <ticket / migration>
+#
+# Exemple :
+# CVE-2022-22965 exp:2027-02-28
+# # raison : correctif impose Boot 3 / Java 17 | resp : Rodrigue | plan : migration Java 17
