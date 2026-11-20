@@ -1,7 +1,7 @@
 # Back mini-OrigaMe — build multi-étapes (l'image finale ne contient ni Maven ni le code source)
 # Phase C : épingler ces images par digest (@sha256:...) pour des builds reproductibles
 
-FROM maven:3.9-eclipse-temurin-8 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /src
 COPY pom.xml .
 RUN mvn -B -ntp dependency:go-offline
