@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Même socle qu'OrigaMe : Spring Boot 2.7 / Java 8 -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.18</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.origame</groupId>
+    <artifactId>demo-server</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>mini-origame-server</name>
+
+    <properties>
+        <java.version>1.8</java.version>
+
+        <!-- ============================================================
+             Remédiation sécurité (scan Trivy de l'image, 20/11/2026)
+             On surcharge les versions gérées par Spring Boot 2.7.18 avec
+             les dernières versions compatibles Java 8. Chaque ligne
+             fait tomber des CVE HIGH/CRITICAL du rapport.
+             ============================================================ -->
+        <!-- 9.0.83 → 9.0.121 : 26 CVE Tomcat (dont CVE-2025-24813 CRITICAL, RCE) -->
+        <tomcat.version>9.0.121</tomcat.version>
+        <!-- 5.3.31 → 5.3.39 (dernière version open source de la branche 5.3) :
+             CVE-2024-22243, CVE-2024-22259, CVE-2024-22262 -->
+        <spring-framework.version>5.3.39</spring-framework.version>
+        <!-- 2.13.5 → 2.18.11 : 7 CVE Jackson (dont exécution de code via PolymorphicTypeValidator) -->
+        <jackson-bom.version>2.18.11</jackson-bom.version>
+        <!-- 1.30 → 2.0 : CVE-2022-1471 (RCE) + CVE-2022-25857. Supporté par Boot ≥ 2.7.10 -->
+        <snakeyaml.version>2.0</snakeyaml.version>
+        <!-- 1.2.12 → 1.2.13 : CVE-2023-6378, CVE-2023-6481 -->
+        <logback.version>1.2.13</logback.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- /actuator/health : utilisé par les smoke tests après déploiement -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>app</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

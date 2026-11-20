@@ -1,0 +1,148 @@
+# .github/workflows/docker.yml — Phase C : images Docker construites en CI, scannées, inventoriées, signées
+#
+#  Sur une PR        : build + scan + SBOM  (rien n'est publié)
+#  Sur push de main  : build + scan + SBOM  → push GHCR → signature Cosign → SBOM attaché → vérification
+#
+# Registre : GHCR (gratuit, pour apprendre). En Phase D sur OrigaMe, on remplacera par DOCR.
+
+name: Docker
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Image ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write      # pousser sur GHCR
+      id-token: write      # signature Cosign « keyless » (identité OIDC du workflow, aucune clé à stocker)
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [server, app]
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Nom et tag de l'image
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"          # GHCR exige des minuscules
+          echo "IMAGE=ghcr.io/${OWNER}/mini-origame-${{ matrix.component }}" >> "$GITHUB_ENV"
+          echo "TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"     # tag = SHA du commit → traçabilité
+
+      # ------------------------------------------------------------------ BUILD
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.component }}
+          load: true                                    # image gardée en local pour la scanner
+          push: false
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+          build-args: APP_VERSION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      # ------------------------------------------------------------------- SCAN
+      - name: Rapport complet de l'image (non bloquant)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          severity: LOW,MEDIUM,HIGH,CRITICAL
+          format: table
+          output: trivy-image-${{ matrix.component }}.txt
+          exit-code: "0"
+
+      - name: Gate — HIGH/CRITICAL corrigeables (bloquant)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          format: table
+          exit-code: "1"
+
+      # ------------------------------------------------------------------- SBOM
+      - name: SBOM (CycloneDX)
+        # Même si la gate échoue, on veut l'inventaire… mais seulement si l'image existe
+        if: always() && steps.build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          format: cyclonedx
+          output: sbom-${{ matrix.component }}.cdx.json
+
+      - name: Publier rapport + SBOM
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-${{ matrix.component }}-${{ github.sha }}
+          path: |
+            trivy-image-${{ matrix.component }}.txt
+            sbom-${{ matrix.component }}.cdx.json
+          retention-days: 90
+
+      # --------------------------------------- PUBLICATION (main uniquement)
+      - name: Connexion à GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        id: push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push "$IMAGE:$TAG"
+          # Le digest (sha256:...) identifie l'image de façon immuable, contrairement au tag
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG" | cut -d@ -f2)
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "### Image ${{ matrix.component }} publiée" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE:$TAG\`  →  \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # -------------------------------------------- SIGNATURE (main uniquement)
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        if: steps.push.outcome == 'success'
+
+      - name: Signer l'image + attacher le SBOM signé
+        if: steps.push.outcome == 'success'
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+        run: |
+          cosign sign --yes "$REF"
+          cosign attest --yes --type cyclonedx \
+            --predicate "sbom-${{ matrix.component }}.cdx.json" "$REF"
+
+      - name: Vérifier la signature (ce que fera le déploiement en Phase D)
+        if: steps.push.outcome == 'success'
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+        run: |
+          cosign verify "$REF" \
+            --certificate-identity "${{ github.server_url }}/${{ github.repository }}/.github/workflows/docker.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            > /dev/null && echo "✅ Signature valide : image produite par CE workflow, sur main"

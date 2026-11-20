@@ -1,0 +1,32 @@
+# .github/dependabot.yml — PR automatiques de mise à jour de dépendances
+# Projet test : les PR Dependabot visent la branche par défaut (main).
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /app
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      patchs-front:
+        update-types: [patch, minor]   # regroupe les petites MAJ en une seule PR
+
+  - package-ecosystem: maven
+    directory: /server
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    ignore:
+      # Java 8 / Boot 2.7 : on refuse les sauts de version majeure (migration = autre chantier)
+      - dependency-name: "org.springframework.boot:*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: docker
+    directory: /server
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /app
+    schedule: { interval: weekly }
+
+  - package-ecosystem: github-actions   # garde les actions de la CI à jour (supply chain)
+    directory: /
+    schedule: { interval: weekly }

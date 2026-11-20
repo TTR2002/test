@@ -1,0 +1,43 @@
+# .trivyignore — exceptions de sécurité acceptées (dette connue)
+# Règle : UNE CVE par ligne, avec date de fin (exp:), raison et responsable.
+# À la date d'expiration, la CVE redevient bloquante : l'exception doit être réexaminée.
+#
+# Format :
+# CVE-AAAA-NNNNN exp:AAAA-MM-JJ
+# # raison : <pourquoi on ne corrige pas maintenant> | resp : <qui> | plan : <ticket / migration>
+#
+# ---------------------------------------------------------------------------
+# Revue du 2026-11-20 — image mini-origame-server (Spring Boot 2.7.18 / Java 8)
+# Rapport : 52 CVE HIGH/CRITICAL. 41 corrigées par surcharge de versions dans
+# server/pom.xml (Tomcat, Spring 5.3.39, Jackson, SnakeYAML, Logback).
+# Les 11 restantes ne sont corrigées que dans Spring Framework 6/7 ou Boot 3/4,
+# qui exigent Java 17 → impossible sans migration.
+# ---------------------------------------------------------------------------
+
+# --- Spring Framework (correctif uniquement en 6.x / 7.x) -------------------
+CVE-2016-1000027 exp:2027-02-28
+# raison : HttpInvokerServiceExporter (désérialisation) non utilisé par l'appli | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2024-38816 exp:2027-02-28
+# raison : ne concerne que RouterFunctions + FileSystemResource, non utilisés | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2024-38819 exp:2027-02-28
+# raison : frameworks web fonctionnels (RouterFunctions), non utilisés | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2025-41249 exp:2027-02-28
+# raison : détection d'annotations sur types génériques, pas de cas exploitable identifié | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2026-41842 exp:2027-02-28
+# raison : DoS sur ressources statiques ; le back ne sert pas de statique (servi par nginx) | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2026-41845 exp:2027-02-28
+# raison : XSS via échappement JavaScript ; API JSON sans rendu de vues | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2026-41850 exp:2027-02-28
+# raison : DoS via expressions SpEL ; aucune SpEL construite à partir d'entrées utilisateur | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2026-47884 exp:2027-02-28
+# raison : RCE via XsltView ; aucune vue XSLT dans l'appli | resp : Rodrigue | plan : migration Java 17 / Boot 3
+
+# --- Spring Boot (correctif uniquement en 3.x / 4.x) ------------------------
+CVE-2025-22235 exp:2027-02-28
+# raison : EndpointRequest.to() ne concerne que Spring Security, non utilisé | resp : Rodrigue | plan : migration Java 17 / Boot 3
+CVE-2026-40973 exp:2027-02-28
+# raison : correctif uniquement en Boot 3.5.14 / 4.0.6 ; à réévaluer (sessions) | resp : Rodrigue | plan : migration Java 17 / Boot 3
+
+# --- Micrometer (correctif en 1.15+, incompatible avec Boot 2.7) ------------
+CVE-2026-40984 exp:2027-02-28
+# raison : vise les intégrations Jetty (micrometer-jetty11/12) ; l'appli tourne sur Tomcat | resp : Rodrigue | plan : migration Java 17 / Boot 3

@@ -2,14 +2,17 @@
 # (plus « prod-ready » que vite preview, utilisé aujourd'hui sur OrigaMe)
 # Phase C : épingler ces images par digest (@sha256:...)
 
-FROM node:20-alpine AS build
+# Image de build en glibc (Debian), comme le runner Ubuntu de la CI où le build passe :
+# avec Alpine (musl), "vite build" échouait (cause probable : binaires natifs Rollup/esbuild).
+FROM node:20-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# nginx 1.27 est en fin de vie depuis juin 2025 → branche stable supportée 1.30
+FROM nginx:1.30-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/dist /usr/share/nginx/html
 EXPOSE 80
