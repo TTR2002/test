@@ -1,0 +1,115 @@
+# .github/workflows/deploy.yml — Phase D : déploiement contrôlé (version dépôt privé, sans surcoût)
+#
+# Principe : DigitalOcean ne déploie plus tout seul à chaque push (« Autodeploy » désactivé).
+# C'est ce workflow qui lui donne le feu vert, et seulement si :
+#   1. la personne qui a poussé / fusionné est autorisée pour cette branche ;
+#   2. les 6 contrôles (CI, Security, Docker) sont verts sur ce commit.
+# DigitalOcean construit ensuite comme d'habitude, puis des smoke tests vérifient le résultat.
+#
+# Configuration (Settings → Secrets and variables → Actions) — modifiable par le propriétaire du dépôt seulement :
+#   Secret    DO_API_TOKEN        jeton DigitalOcean à droits limités aux apps
+#   Variable  DEPLOYERS_STAGING   ex. "rodrigue-gh,collegue1"   (logins GitHub, séparés par des virgules)
+#   Variable  DEPLOYERS_PROD      ex. "responsable-gh"
+#   Variable  DO_APP_ID_STAGING   id de l'app démo   (doctl apps list)
+#   Variable  DO_APP_ID_PROD      id de l'app prod
+#   Variable  HEALTH_URL_STAGING  ex. https://demo.origame.app/api/actuator/health
+#   Variable  HEALTH_URL_PROD     ex. https://origame.app/api/actuator/health
+# Si DO_APP_ID_* est vide (dépôt test), le déploiement est simulé : tout le reste tourne pour de vrai.
+
+name: Deploy
+
+on:
+  push:
+    branches: [staging, main]
+
+permissions:
+  contents: read
+
+# Jamais deux déploiements de la même branche en même temps, et on n'interrompt pas celui en cours
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ------------------------------------------------ 1. QUI A LE DROIT ?
+  authorize:
+    name: Autorisation de ${{ github.triggering_actor }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier la liste des personnes autorisées
+        env:
+          BRANCH: ${{ github.ref_name }}
+          # triggering_actor = qui a déclenché CE run (y compris un « Re-run »)
+          ACTOR: ${{ github.triggering_actor }}
+          ALLOWED: ${{ github.ref_name == 'main' && vars.DEPLOYERS_PROD || vars.DEPLOYERS_STAGING }}
+        run: |
+          if [ -z "$ALLOWED" ]; then
+            echo "::error::Aucune liste d'autorisés configurée pour '$BRANCH' (variables DEPLOYERS_*)."
+            exit 1
+          fi
+          if echo ",${ALLOWED// /}," | grep -qi ",${ACTOR},"; then
+            echo "✅ $ACTOR est autorisé à déployer '$BRANCH'."
+          else
+            echo "::error::⛔ $ACTOR n'est PAS autorisé à déployer '$BRANCH'. Rien ne sera déployé."
+            exit 1
+          fi
+
+  # ------------------------------------------------ 2. LES CONTRÔLES
+  ci:
+    uses: ./.github/workflows/ci.yml
+  security:
+    uses: ./.github/workflows/security.yml
+  docker:
+    uses: ./.github/workflows/docker.yml
+    permissions:
+      contents: read
+      packages: write      # utilisé seulement si PUBLISH_IMAGES = true (dépôt test)
+      id-token: write
+
+  # ------------------------------------------------ 3. LE FEU VERT À DIGITALOCEAN
+  deploy:
+    name: Déploiement ${{ github.ref_name }}
+    needs: [authorize, ci, security, docker]
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ github.ref_name == 'main' && vars.DO_APP_ID_PROD || vars.DO_APP_ID_STAGING }}
+    steps:
+      - name: Mode simulation (aucune app DigitalOcean configurée)
+        if: env.APP_ID == ''
+        run: |
+          echo "ℹ️ DO_APP_ID non défini : contrôles OK, déploiement simulé pour ${GITHUB_SHA}."
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        if: env.APP_ID != ''
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Demander à DigitalOcean de construire et déployer ce commit
+        if: env.APP_ID != ''
+        run: |
+          doctl apps create-deployment "$APP_ID" --wait
+          echo "### Déployé : \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA::7}\` par ${GITHUB_TRIGGERING_ACTOR}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------ 4. EST-CE QUE ÇA MARCHE ?
+  smoke:
+    name: Smoke tests
+    needs: deploy
+    runs-on: ubuntu-latest
+    env:
+      HEALTH_URL: ${{ github.ref_name == 'main' && vars.HEALTH_URL_PROD || vars.HEALTH_URL_STAGING }}
+    steps:
+      - name: L'application répond
+        if: env.HEALTH_URL != ''
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 10 "$HEALTH_URL" | grep -q 'UP'; then
+              echo "✅ $HEALTH_URL répond UP"; exit 0
+            fi
+            echo "Tentative $i/20 : pas encore prêt…"; sleep 15
+          done
+          echo "::error::⛔ $HEALTH_URL ne répond pas UP après 5 minutes."
+          exit 1
+      - name: Pas d'URL configurée
+        if: env.HEALTH_URL == ''
+        run: |
+          echo "ℹ️ HEALTH_URL non définie : smoke test ignoré."

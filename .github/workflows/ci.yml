@@ -7,8 +7,7 @@ name: CI
 on:
   pull_request:
     branches: [main, staging, prod]
-  push:
-    branches: [main, staging]
+  workflow_call: {}             # appelé par deploy.yml sur push vers staging / main
   workflow_dispatch: {}          # bouton "Run workflow" pour relancer à la main
 
 # Moindre privilège : le token GitHub ne peut que lire le code
@@ -17,7 +16,8 @@ permissions:
 
 # Une nouvelle poussée sur la même PR annule le run précédent (économie de minutes)
 concurrency:
-  group: ci-${{ github.ref }}
+  # github.workflow = nom de l'appelant quand le workflow est appelé par deploy.yml
+  group: ${{ github.workflow }}-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
