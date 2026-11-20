@@ -1,24 +1,25 @@
 # .github/workflows/docker.yml — Phase C : images Docker construites en CI, scannées, inventoriées, signées
 #
 #  Sur une PR        : build + scan + SBOM  (rien n'est publié)
-#  Sur push de main  : build + scan + SBOM  → push GHCR → signature Cosign → SBOM attaché → vérification
+#  Sur push de main, SI la variable PUBLISH_IMAGES = true : + push GHCR → signature Cosign → vérification
+#  (OrigaMe : variable absente → pas de publication, DigitalOcean construit lui-même)
 #
-# Registre : GHCR (gratuit, pour apprendre). En Phase D sur OrigaMe, on remplacera par DOCR.
+# Registre : GHCR (gratuit), seulement sur le dépôt test.
 
 name: Docker
 
 on:
   pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+    branches: [main, staging]
+  workflow_call: {}             # appelé par deploy.yml sur push vers staging / main
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: docker-${{ github.ref }}
+  # github.workflow = nom de l'appelant quand le workflow est appelé par deploy.yml
+  group: ${{ github.workflow }}-docker-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -106,7 +107,7 @@ jobs:
 
       # --------------------------------------- PUBLICATION (main uniquement)
       - name: Connexion à GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLISH_IMAGES == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -115,7 +116,7 @@ jobs:
 
       - name: Push
         id: push
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLISH_IMAGES == 'true'
         run: |
           docker push "$IMAGE:$TAG"
           # Le digest (sha256:...) identifie l'image de façon immuable, contrairement au tag

@@ -10,6 +10,10 @@ updates:
     groups:
       patchs-front:
         update-types: [patch, minor]   # regroupe les petites MAJ en une seule PR
+    ignore:
+      # Versions majeures = changements cassants : elles se planifient à la main, pas en PR auto
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: maven
     directory: /server
@@ -20,12 +24,21 @@ updates:
       - dependency-name: "org.springframework.boot:*"
         update-types: ["version-update:semver-major"]
 
+  # Docker : on garde Java 8 et Node 20 ; seules les mises à jour de correctif de l'image passent
   - package-ecosystem: docker
     directory: /server
     schedule: { interval: weekly }
+    ignore:
+      # Versions majeures = changements cassants : elles se planifient à la main, pas en PR auto
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /app
     schedule: { interval: weekly }
+    ignore:
+      # Versions majeures = changements cassants : elles se planifient à la main, pas en PR auto
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions   # garde les actions de la CI à jour (supply chain)
     directory: /
