@@ -4,7 +4,7 @@
 
 # Image de build en glibc (Debian), comme le runner Ubuntu de la CI où le build passe :
 # avec Alpine (musl), "vite build" échouait (cause probable : binaires natifs Rollup/esbuild).
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
