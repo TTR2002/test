@@ -9,7 +9,7 @@ COPY src ./src
 # Les tests sont déjà joués par la CI : on ne les relance pas dans l'image
 RUN mvn -B -ntp package -DskipTests
 
-FROM eclipse-temurin:8-jre
+FROM eclipse-temurin:25-jre
 # Utilisateur non-root : si l'appli est compromise, l'attaquant n'est pas root dans le conteneur
 RUN groupadd --system app && useradd --system --gid app app
 WORKDIR /app
